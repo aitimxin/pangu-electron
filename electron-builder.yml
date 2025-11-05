@@ -1,0 +1,102 @@
+appId: com.pangu.agent
+productName: Pangu AI Agent
+copyright: Copyright © 2024 Pangu AI Agent Team
+
+directories:
+  output: dist
+  buildResources: build
+
+files:
+  - electron/**/*
+  - package.json
+  - "!**/{.git,.DS_Store,npm-debug.log,node_modules/**/*}"
+
+extraResources:
+  - from: ../pangu-agent-front/dist
+    to: app
+    filter:
+      - "**/*"
+
+# Windows Configuration
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+  icon: build/icon.ico
+  artifactName: ${productName}-Setup-${version}.${ext}
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  allowElevation: true
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: Pangu AI Agent
+  deleteAppDataOnUninstall: false
+
+# macOS Configuration
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+    - target: zip
+      arch:
+        - x64
+        - arm64
+  icon: build/icon.icns
+  category: public.app-category.productivity
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+dmg:
+  background: build/dmg-background.png
+  icon: build/icon.icns
+  iconSize: 100
+  contents:
+    - x: 410
+      y: 150
+      type: link
+      path: /Applications
+    - x: 130
+      y: 150
+      type: file
+
+# Linux Configuration
+linux:
+  target:
+    - AppImage
+    - deb
+  icon: build/icon.png
+  category: Utility
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+appImage:
+  license: LICENSE
+
+deb:
+  depends:
+    - gconf2
+    - gconf-service
+    - libnotify4
+    - libappindicator1
+    - libxtst6
+    - libnss3
+
+# Auto Update Configuration
+publish:
+  provider: generic
+  url: https://updates.example.com
+  channel: latest
+
