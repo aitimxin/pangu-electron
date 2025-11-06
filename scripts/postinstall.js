@@ -35,3 +35,4 @@ if (!fs.existsSync(envPath) && fs.existsSync(envExamplePath)) {
 
 console.log('Post-install script completed!');
 
+

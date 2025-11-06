@@ -36,7 +36,7 @@ const schema = {
   api: {
     type: 'object',
     properties: {
-      baseUrl: { type: 'string', default: 'https://api.example.com' },
+      baseUrl: { type: 'string', default: 'http://localhost:8080' },
       timeout: { type: 'number', default: 30000 },
       retryTimes: { type: 'number', default: 3 }
     }
@@ -55,7 +55,7 @@ const schema = {
   puppeteer: {
     type: 'object',
     properties: {
-      headless: { type: 'boolean', default: true },
+      headless: { type: 'boolean', default: false },  // 关闭无头模式，显示浏览器窗口
       timeout: { type: 'number', default: 30000 },
       maxRetries: { type: 'number', default: 3 },
       userAgent: { type: 'string', default: '' },

@@ -244,3 +244,4 @@ sudo xattr -rd com.apple.quarantine /Applications/Pangu\ AI\ Agent.app
 
 祝您使用愉快！ 🎉
 
+

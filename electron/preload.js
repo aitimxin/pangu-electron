@@ -194,3 +194,4 @@ if (process.env.NODE_ENV === 'development') {
   console.log('Electron version:', process.versions.electron);
 }
 
+

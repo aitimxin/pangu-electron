@@ -396,3 +396,4 @@ sudo xattr -cr /Applications/Pangu\ AI\ Agent.app
 
 **祝安装顺利！** 🎉
 
+

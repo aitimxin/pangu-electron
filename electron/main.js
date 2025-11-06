@@ -61,6 +61,7 @@ function createWindow() {
   } else {
     // 生产模式：加载打包后的文件
     mainWindow.loadFile(frontendUrl);
+    // 生产模式不打开DevTools，避免Autofill警告
   }
 
   // 窗口加载完成后显示
@@ -129,15 +130,25 @@ function registerIpcHandlers() {
   // ============ 视频抓取 ============
   ipcMain.handle('fetch-video', async (event, url) => {
     try {
-      logger.info('Fetching video:', url);
+      logger.info('========================================');
+      logger.info('IPC: 收到视频抓取请求:', url);
+      
       const result = await puppeteerService.fetchVideo(url, (progress) => {
         // 发送进度到渲染进程
+        logger.info('进度:', progress.message);
         mainWindow.webContents.send('fetch-progress', progress);
       });
-      logger.info('Video fetched successfully');
+      
+      logger.info('IPC: 视频抓取成功，返回结果:', JSON.stringify(result, null, 2));
+      logger.info('========================================');
+      
       return { success: true, data: result };
     } catch (error) {
-      logger.error('Failed to fetch video:', error);
+      logger.error('========================================');
+      logger.error('IPC: 视频抓取失败:', error.message);
+      logger.error('错误堆栈:', error.stack);
+      logger.error('========================================');
+      
       return { success: false, error: error.message };
     }
   });
