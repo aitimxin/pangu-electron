@@ -162,9 +162,7 @@ class PuppeteerService {
     logger.info('Fetching Douyin video');
     
     await this._initializePage(page);
-    
-    // 提前显示"提取视频信息"
-    this._reportProgress(progressCallback, taskId, 'extracting', '提取视频信息...');
+    this._reportProgress(progressCallback, taskId, 'loading', '访问页面...');
 
     // 访问首页获取cookie
     try {
@@ -185,7 +183,9 @@ class PuppeteerService {
     });
     await this._delay(3000);
 
-    // 实际提取视频信息（不再显示进度，因为已经在前面显示过了）
+    this._reportProgress(progressCallback, taskId, 'extracting', '解析视频...');
+
+    // 提取视频信息
     const videoInfo = await this._extractDouyinVideo(page);
     if (!videoInfo?.videoUrl) {
       throw new Error(videoInfo?.error || '视频URL提取失败');
