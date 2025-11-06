@@ -25,6 +25,17 @@ class Logger {
     log.transports.file.format = '[{y}-{m}-{d} {h}:{i}:{s}.{ms}] [{level}] {text}';
     log.transports.console.format = '[{h}:{i}:{s}.{ms}] [{level}] {text}';
 
+    // 修复 Windows 控制台中文乱码问题
+    if (process.platform === 'win32') {
+      // 在 Windows 上使用 UTF-8 编码
+      if (process.stdout && process.stdout.setDefaultEncoding) {
+        process.stdout.setDefaultEncoding('utf8');
+      }
+      if (process.stderr && process.stderr.setDefaultEncoding) {
+        process.stderr.setDefaultEncoding('utf8');
+      }
+    }
+
     // 设置文件大小限制（10MB）
     log.transports.file.maxSize = 10 * 1024 * 1024;
   }

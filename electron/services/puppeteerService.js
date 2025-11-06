@@ -31,7 +31,7 @@ class PuppeteerService {
       const puppeteerConfig = config.getPuppeteerConfig();
       
       this.browser = await puppeteer.launch({
-        headless: puppeteerConfig.headless !== false,
+        headless: false,  // 关闭无头模式，显示浏览器窗口
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
@@ -211,136 +211,73 @@ class PuppeteerService {
       timeout: 30000 
     });
 
+    // 等待页面完全加载
+    logger.info('Waiting for page to fully load...');
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
     progressCallback && progressCallback({ 
       taskId, 
       step: 'extracting', 
-      message: '正在提取视频信息...' 
+      message: 'Extracting video info...' 
     });
 
-    // 提取视频信息（使用多种方法）
+    // 简化的视频提取：只从最后一个source标签获取
+    logger.info('Extracting video URL from last <source> tag...');
     const videoInfo = await page.evaluate(() => {
-      const debugInfo = [];
-      
-      // 方法1: 从 source 标签提取（优先，通常包含真实URL）
-      debugInfo.push('尝试方法1: source标签');
       const videoElement = document.querySelector('video');
-      if (videoElement) {
-        const sources = videoElement.querySelectorAll('source');
-        debugInfo.push(`找到 ${sources.length} 个source标签`);
-        
-        if (sources.length > 0) {
-          // 优先获取第三个source（如果有），否则获取最后一个
-          const sourceIndex = sources.length >= 3 ? 2 : sources.length - 1;
-          const sourceUrl = sources[sourceIndex]?.src;
-          
-          if (sourceUrl && !sourceUrl.startsWith('blob:')) {
-            debugInfo.push(`从source[${sourceIndex}]提取成功: ${sourceUrl.substring(0, 50)}...`);
-            return {
-              videoUrl: sourceUrl,
-              title: document.querySelector('title')?.textContent || '',
-              author: document.querySelector('.author-name, .account-name')?.textContent || '',
-              poster: videoElement.poster || '',
-              debugInfo
-            };
-          } else {
-            debugInfo.push(`source[${sourceIndex}]是blob URL，跳过`);
-          }
-        }
-        
-        // 尝试video标签的src（如果不是blob）
-        if (videoElement.src && !videoElement.src.startsWith('blob:')) {
-          debugInfo.push('从video.src提取成功');
+      
+      if (!videoElement) {
+        return { 
+          videoUrl: null, 
+          error: 'Video element not found'
+        };
+      }
+
+      const sources = videoElement.querySelectorAll('source');
+      
+      // 如果有source子元素，使用最后一个
+      if (sources.length > 0) {
+        const lastSource = sources[sources.length - 1];
+        const videoUrl = lastSource?.src;
+
+        if (videoUrl && !videoUrl.startsWith('blob:')) {
           return {
-            videoUrl: videoElement.src,
+            videoUrl: videoUrl,
             title: document.querySelector('title')?.textContent || '',
             author: document.querySelector('.author-name, .account-name')?.textContent || '',
-            poster: videoElement.poster || '',
-            debugInfo
+            sourceCount: sources.length,
+            extractMethod: 'source_tag'
           };
         }
-      } else {
-        debugInfo.push('未找到video元素');
       }
 
-      // 方法2: 从页面script中提取
-      debugInfo.push('尝试方法2: script标签');
-      const scripts = document.querySelectorAll('script');
-      for (const script of scripts) {
-        const text = script.textContent || '';
-        
-        // 查找包含视频URL的script
-        if (text.includes('playAddr') || text.includes('video_url') || text.includes('videoUrl')) {
-          debugInfo.push('找到包含视频数据的script');
-          
-          // 尝试多种正则模式
-          const patterns = [
-            // playAddr 格式
-            /"playAddr":\s*"([^"]+)"/,
-            /playAddr"?:\s*"([^"]+)"/,
-            /'playAddr':\s*'([^']+)'/,
-            
-            // video_url 格式
-            /"video_url":\s*"([^"]+)"/,
-            /video_url"?:\s*"([^"]+)"/,
-            
-            // videoUrl 格式
-            /"videoUrl":\s*"([^"]+)"/,
-            /videoUrl"?:\s*"([^"]+)"/,
-            
-            // src 格式
-            /"src":\s*"(https?:\/\/[^"]*\.mp4[^"]*)"/,
-          ];
-
-          for (const pattern of patterns) {
-            const match = text.match(pattern);
-            if (match && match[1] && !match[1].startsWith('blob:')) {
-              debugInfo.push(`正则匹配成功: ${pattern.toString()}`);
-              return {
-                videoUrl: match[1],
-                title: document.querySelector('title')?.textContent || '',
-                author: document.querySelector('.author-name, .account-name')?.textContent || '',
-                debugInfo
-              };
-            }
-          }
-        }
+      // 如果没有source或source无效，尝试video.src
+      if (videoElement.src && !videoElement.src.startsWith('blob:')) {
+        return {
+          videoUrl: videoElement.src,
+          title: document.querySelector('title')?.textContent || '',
+          author: document.querySelector('.author-name, .account-name')?.textContent || '',
+          sourceCount: 0,
+          extractMethod: 'video_src'
+        };
       }
 
-      // 方法3: 从 window 全局对象提取
-      debugInfo.push('尝试方法3: window全局对象');
-      try {
-        // __INITIAL_STATE__
-        if (window.__INITIAL_STATE__) {
-          debugInfo.push('找到__INITIAL_STATE__');
-          const state = window.__INITIAL_STATE__;
-          if (state.video?.playAddr) {
-            debugInfo.push('从__INITIAL_STATE__.video.playAddr提取成功');
-            return {
-              videoUrl: state.video.playAddr,
-              title: state.video.desc || state.video.title || '',
-              author: state.video.author?.nickname || '',
-              debugInfo
-            };
-          }
-        }
-      } catch (e) {
-        debugInfo.push('window对象提取失败: ' + e.message);
-      }
-
-      debugInfo.push('所有方法都失败');
-      return { videoUrl: null, debugInfo };
+      // 提取失败
+      return { 
+        videoUrl: null, 
+        error: `No valid video URL found (sources: ${sources.length}, video.src: ${videoElement.src?.substring(0, 50) || 'null'})`
+      };
     });
 
-    // 输出调试信息
-    if (videoInfo.debugInfo) {
-      logger.info('视频提取调试信息:', videoInfo.debugInfo);
-    }
+    logger.info('Video extraction result:', videoInfo);
 
     if (!videoInfo || !videoInfo.videoUrl) {
-      throw new Error('Failed to extract video URL from Douyin');
+      const errorMsg = videoInfo?.error || 'Failed to extract video URL from Douyin';
+      logger.error('Video URL extraction failed:', errorMsg);
+      throw new Error(errorMsg);
     }
 
-    logger.info('Douyin video info extracted:', videoInfo);
+    logger.info('Douyin video info extracted successfully, source count:', videoInfo.sourceCount);
 
     // 下载视频（流式下载到临时文件）
     logger.info('======== 开始下载视频 ========');
@@ -362,15 +299,41 @@ class PuppeteerService {
     });
 
     const uploadResult = await this.uploadToBackend(tempFilePath, videoInfo, progressCallback, taskId);
-    logger.info('======== 上传完成，结果:', uploadResult);
+    logger.info('======== Upload completed, result:', uploadResult);
+    logger.info('uploadResult.cdnUrl:', uploadResult.cdnUrl);
+    logger.info('uploadResult.videoUrl:', uploadResult.videoUrl);
 
-    const finalResult = {
-      ...videoInfo,
-      ...uploadResult,
-      platform: 'douyin'
+    // 构建最终结果，确保使用OSS地址
+    const ossVideoUrl = uploadResult.cdnUrl || uploadResult.videoUrl;
+    
+    // 使用 OSS 视频封面功能生成缩略图
+    // 参考: https://help.aliyun.com/zh/oss/user-guide/video-snapshots
+    const generateOssThumbnail = (videoUrl) => {
+      if (!videoUrl) return '';
+      // 添加 OSS 视频截帧参数
+      // t_1000: 截取第1秒的帧
+      // f_jpg: 输出格式为 jpg
+      // w_0,h_0: 保持原始尺寸
+      // m_fast: 快速模式
+      return `${videoUrl}?x-oss-process=video/snapshot,t_1000,f_jpg,w_0,h_0,m_fast`;
     };
     
-    logger.info('======== fetchDouyin 完成，最终结果:', finalResult);
+    const finalResult = {
+      title: videoInfo.title,
+      author: videoInfo.author,
+      platform: 'douyin',
+      // 关键：使用OSS地址，不是原始抖音链接
+      videoUrl: ossVideoUrl,
+      cdnUrl: ossVideoUrl,
+      thumbnailUrl: generateOssThumbnail(ossVideoUrl),  // 使用 OSS 视频封面功能
+      videoId: uploadResult.videoId,
+      sourceCount: videoInfo.sourceCount
+    };
+    
+    logger.info('======== fetchDouyin completed, final result:', finalResult);
+    logger.info('Final videoUrl:', finalResult.videoUrl);
+    logger.info('Final cdnUrl:', finalResult.cdnUrl);
+    logger.info('Final thumbnailUrl (OSS snapshot):', finalResult.thumbnailUrl);
     return finalResult;
   }
 
@@ -641,6 +604,14 @@ class PuppeteerService {
 
       logger.info('Video uploaded successfully:', response.data);
       
+      // 后端返回的数据结构：{ code: 200, data: { videoUrl, cdnUrl, ... } }
+      // 需要从 response.data.data 中提取
+      const backendData = response.data.data || response.data;
+      
+      logger.info('Backend data extracted:', backendData);
+      logger.info('backendData.videoUrl:', backendData.videoUrl);
+      logger.info('backendData.cdnUrl:', backendData.cdnUrl);
+      
       // 上传成功后删除临时文件
       try {
         fs.unlinkSync(tempFilePath);
@@ -650,9 +621,14 @@ class PuppeteerService {
       }
       
       return {
-        videoId: response.data.videoId,
-        cdnUrl: response.data.cdnUrl || response.data.videoUrl,
-        thumbnailUrl: response.data.thumbnailUrl
+        videoId: backendData.videoId,
+        videoUrl: backendData.videoUrl,
+        cdnUrl: backendData.cdnUrl,
+        thumbnailUrl: backendData.thumbnailUrl,
+        title: backendData.title,
+        size: backendData.size,
+        duration: backendData.duration,
+        platform: backendData.platform
       };
     } catch (error) {
       // 上传失败也要清理临时文件
