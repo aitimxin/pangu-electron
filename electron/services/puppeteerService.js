@@ -17,19 +17,74 @@ const path = require('path');
 const logger = require('../utils/logger');
 const config = require('../utils/config');
 
-// 常量配置
-const CONSTANTS = {
+const DEFAULTS = {
   USER_AGENT: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
   MAX_RETRIES: 3,
   MAX_FILE_SIZE: 800 * 1024 * 1024, // 800MB
   LARGE_FILE_SIZE: 300 * 1024 * 1024, // 300MB
-  TEMP_DIR: './temp',
-  TIMEOUT: {
-    PAGE_LOAD: 30000,
-    DOWNLOAD: 300000,
-    UPLOAD: 600000
-  }
+  TEMP_DIR: path.resolve(process.cwd(), 'temp'),
+  TIMEOUTS: {
+    pageLoad: 30000,
+    download: 300000,
+    upload: 600000
+  },
+  VIEWPORT: { width: 1920, height: 1080 },
+  LAUNCH_ARGS: [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-accelerated-2d-canvas',
+    '--disable-gpu',
+    '--window-size=1920,1080'
+  ]
 };
+
+function resolveTempDir(customDir) {
+  if (!customDir) {
+    return DEFAULTS.TEMP_DIR;
+  }
+
+  return path.isAbsolute(customDir) ? customDir : path.resolve(customDir);
+}
+
+function mergeLaunchArgs(customArgs = []) {
+  const extras = Array.isArray(customArgs) ? customArgs.filter(Boolean) : [];
+  const merged = [...DEFAULTS.LAUNCH_ARGS, ...extras];
+  return Array.from(new Set(merged));
+}
+
+function buildPuppeteerSettings() {
+  const overrides = config.getPuppeteerConfig() || {};
+  const fallbackTimeout = typeof overrides.timeout === 'number' ? overrides.timeout : undefined;
+
+  const pageLoadTimeout = typeof overrides.pageLoadTimeout === 'number'
+    ? overrides.pageLoadTimeout
+    : fallbackTimeout ?? DEFAULTS.TIMEOUTS.pageLoad;
+
+  const downloadTimeout = typeof overrides.downloadTimeout === 'number'
+    ? overrides.downloadTimeout
+    : fallbackTimeout ?? DEFAULTS.TIMEOUTS.download;
+
+  const uploadTimeout = typeof overrides.uploadTimeout === 'number'
+    ? overrides.uploadTimeout
+    : fallbackTimeout ?? DEFAULTS.TIMEOUTS.upload;
+
+  return {
+    headless: overrides.headless ?? false,
+    userAgent: overrides.userAgent || DEFAULTS.USER_AGENT,
+    maxRetries: overrides.maxRetries ?? DEFAULTS.MAX_RETRIES,
+    timeouts: {
+      pageLoad: pageLoadTimeout,
+      download: downloadTimeout,
+      upload: uploadTimeout
+    },
+    launchArgs: mergeLaunchArgs(overrides.launchArgs),
+    viewport: overrides.viewport || DEFAULTS.VIEWPORT,
+    executablePath: overrides.executablePath || null,
+    ignoreHTTPSErrors: overrides.ignoreHTTPSErrors ?? false,
+    tempDir: resolveTempDir(overrides.tempDir)
+  };
+}
 
 class PuppeteerService {
   constructor() {
@@ -37,30 +92,26 @@ class PuppeteerService {
     this.isInitialized = false;
     this.fetchTasks = new Map();
     this.videoCache = new Map();
+    this.settings = buildPuppeteerSettings();
+    this.timeouts = this.settings.timeouts;
+    this.tempDir = this.settings.tempDir;
+    this.maxRetries = this.settings.maxRetries;
+    this.userAgent = this.settings.userAgent;
   }
 
   /**
    * 初始化 Puppeteer
    */
   async initialize() {
+    const settings = this._refreshSettings();
+
     if (this.isInitialized) {
       logger.info('Puppeteer already initialized');
       return;
     }
 
     logger.info('Launching Puppeteer browser...');
-    this.browser = await puppeteer.launch({
-      headless: false,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--disable-gpu',
-        '--window-size=1920,1080'
-      ],
-      defaultViewport: { width: 1920, height: 1080 }
-    });
+    this.browser = await puppeteer.launch(this._buildLaunchOptions(settings));
 
     this.isInitialized = true;
     logger.info('Puppeteer browser launched successfully');
@@ -77,6 +128,8 @@ class PuppeteerService {
    */
   async fetchVideo(url, progressCallback) {
     const taskId = this.generateTaskId();
+    const settings = this._refreshSettings();
+    const maxRetries = settings.maxRetries;
     
     // 检查缓存
     if (this.isCacheValid(url)) {
@@ -85,10 +138,10 @@ class PuppeteerService {
     }
 
     // 重试逻辑
-    for (let attempt = 1; attempt <= CONSTANTS.MAX_RETRIES; attempt++) {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        logger.info(`尝试 ${attempt}/${CONSTANTS.MAX_RETRIES}`);
-        this._reportProgress(progressCallback, taskId, 'detecting', `检测平台 (${attempt}/${CONSTANTS.MAX_RETRIES})`);
+        logger.info(`尝试 ${attempt}/${maxRetries}`);
+        this._reportProgress(progressCallback, taskId, 'detecting', `检测平台 (${attempt}/${maxRetries})`);
 
         const result = await this._fetchVideoAttempt(url, taskId, progressCallback);
         this.cacheVideo(url, result);
@@ -98,8 +151,8 @@ class PuppeteerService {
       } catch (error) {
         logger.error(`尝试 ${attempt} 失败:`, error.message);
         
-        if (attempt >= CONSTANTS.MAX_RETRIES) {
-          throw new Error(`视频抓取失败（已重试 ${CONSTANTS.MAX_RETRIES} 次）: ${error.message}`);
+        if (attempt >= maxRetries) {
+          throw new Error(`视频抓取失败（已重试 ${maxRetries} 次）: ${error.message}`);
         }
         
         const delayMs = attempt * 2000;
@@ -108,6 +161,31 @@ class PuppeteerService {
         await this._delay(delayMs);
       }
     }
+  }
+
+  _refreshSettings() {
+    const settings = buildPuppeteerSettings();
+    this.settings = settings;
+    this.timeouts = settings.timeouts;
+    this.tempDir = settings.tempDir;
+    this.maxRetries = settings.maxRetries;
+    this.userAgent = settings.userAgent;
+    return settings;
+  }
+
+  _buildLaunchOptions(settings) {
+    const launchOptions = {
+      headless: settings.headless,
+      args: settings.launchArgs,
+      defaultViewport: settings.viewport,
+      ignoreHTTPSErrors: settings.ignoreHTTPSErrors
+    };
+
+    if (settings.executablePath) {
+      launchOptions.executablePath = settings.executablePath;
+    }
+
+    return launchOptions;
   }
 
   /**
@@ -170,7 +248,7 @@ class PuppeteerService {
     try {
       await page.goto('https://www.douyin.com', { 
         waitUntil: 'networkidle2',
-        timeout: CONSTANTS.TIMEOUT.PAGE_LOAD 
+        timeout: this.timeouts.pageLoad 
       });
       await this._delay(2000);
       logger.info(`获取到 ${(await page.cookies()).length} 个 cookies`);
@@ -181,7 +259,7 @@ class PuppeteerService {
     // 访问目标页面
     await page.goto(url, { 
       waitUntil: 'networkidle2',
-      timeout: CONSTANTS.TIMEOUT.PAGE_LOAD 
+      timeout: this.timeouts.pageLoad 
     });
     await this._delay(3000);
 
@@ -257,7 +335,7 @@ class PuppeteerService {
 
     await page.goto(url, { 
       waitUntil: 'networkidle2',
-      timeout: CONSTANTS.TIMEOUT.PAGE_LOAD 
+      timeout: this.timeouts.pageLoad 
     });
 
     this._reportProgress(progressCallback, taskId, 'extracting', '解析视频...');
@@ -288,7 +366,7 @@ class PuppeteerService {
 
     await page.goto(url, { 
       waitUntil: 'networkidle2',
-      timeout: CONSTANTS.TIMEOUT.PAGE_LOAD 
+      timeout: this.timeouts.pageLoad 
     });
 
     const videoInfo = await page.evaluate(() => ({
@@ -360,15 +438,15 @@ class PuppeteerService {
     logger.info('Downloading video...');
 
     this._ensureTempDir();
-    const tempFilePath = path.join(CONSTANTS.TEMP_DIR, `video_${taskId}.mp4`);
+    const tempFilePath = path.join(this.tempDir, `video_${taskId}.mp4`);
 
     try {
       const response = await axios({
         method: 'GET',
         url: videoUrl,
         responseType: 'stream',
-        timeout: CONSTANTS.TIMEOUT.DOWNLOAD,
-        maxContentLength: CONSTANTS.MAX_FILE_SIZE,
+        timeout: this.timeouts.download,
+        maxContentLength: DEFAULTS.MAX_FILE_SIZE,
       });
 
       const totalSize = parseInt(response.headers['content-length'] || '0');
@@ -421,7 +499,7 @@ class PuppeteerService {
           ...formData.getHeaders(),
           'Authorization': authInfo.token ? `Bearer ${authInfo.token}` : ''
         },
-        timeout: CONSTANTS.TIMEOUT.UPLOAD,
+        timeout: this.timeouts.upload,
         maxBodyLength: Infinity,
         maxContentLength: Infinity
       });
@@ -454,7 +532,7 @@ class PuppeteerService {
    * @private
    */
   async _initializePage(page) {
-    await page.setUserAgent(CONSTANTS.USER_AGENT);
+    await page.setUserAgent(this.userAgent);
   }
 
   /**
@@ -492,8 +570,8 @@ class PuppeteerService {
    * @private
    */
   _ensureTempDir() {
-    if (!fs.existsSync(CONSTANTS.TEMP_DIR)) {
-      fs.mkdirSync(CONSTANTS.TEMP_DIR, { recursive: true });
+    if (!fs.existsSync(this.tempDir)) {
+      fs.mkdirSync(this.tempDir, { recursive: true });
     }
   }
 
@@ -504,11 +582,11 @@ class PuppeteerService {
   _validateFileSize(size) {
     const sizeMB = size / 1024 / 1024;
     
-    if (size > CONSTANTS.MAX_FILE_SIZE) {
+    if (size > DEFAULTS.MAX_FILE_SIZE) {
       throw new Error(`视频过大（${sizeMB.toFixed(0)}MB），超过800MB限制`);
     }
     
-    if (size > CONSTANTS.LARGE_FILE_SIZE) {
+    if (size > DEFAULTS.LARGE_FILE_SIZE) {
       logger.warn(`视频较大: ${sizeMB.toFixed(2)}MB`);
     }
   }

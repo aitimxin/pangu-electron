@@ -27,10 +27,14 @@ dirs.forEach(dir => {
 const envExamplePath = path.join(__dirname, '..', '.env.example');
 const envPath = path.join(__dirname, '..', '.env');
 
-if (!fs.existsSync(envPath) && fs.existsSync(envExamplePath)) {
-  console.log('Creating .env file from .env.example...');
-  fs.copyFileSync(envExamplePath, envPath);
-  console.log('.env file created. Please update it with your configuration.');
+if (!fs.existsSync(envPath)) {
+  if (fs.existsSync(envExamplePath)) {
+    console.log('Creating .env file from .env.example...');
+    fs.copyFileSync(envExamplePath, envPath);
+    console.log('.env file created. Please update it with your configuration.');
+  } else {
+    console.log('No .env.example found, skipping .env bootstrap.');
+  }
 }
 
 console.log('Post-install script completed!');

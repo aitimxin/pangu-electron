@@ -34,14 +34,19 @@ Pangu AI Agent Electron 是一个基于 Electron 的桌面应用程序，提供�
 ```
 pangu-electron/
 ├── electron/                    # Electron 主进程代码
-│   ├── main.js                  # 主进程入口
+│   ├── main/                   # 主进程模块化封装
+│   │   ├── appLifecycle.js     # 应用生命周期管理
+│   │   ├── env.js              # 环境与路径解析
+│   │   ├── ipcHandlers.js      # IPC 注册入口
+│   │   ├── shortcuts.js        # 全局快捷键管理
+│   │   └── windowManager.js    # 主窗口创建与状态管理
+│   ├── main.js                 # 主进程入口
 │   ├── preload.js              # 预加载脚本（安全桥接）
 │   ├── services/               # 核心服务
+│   │   ├── fileService.js      # 文件操作服务
 │   │   ├── puppeteerService.js # Puppeteer 爬虫服务
 │   │   ├── trayService.js      # 系统托盘服务
-│   │   ├── updateService.js    # 自动更新服务
-│   │   ├── fileService.js      # 文件操作服务
-│   │   └── localApiServer.js   # 本地 API 服务（可选）
+│   │   └── updateService.js    # 自动更新服务
 │   └── utils/                  # 工具函数
 │       ├── logger.js           # 日志工具
 │       └── config.js           # 配置管理
@@ -135,13 +140,23 @@ api: {
 
 ```javascript
 puppeteer: {
-  headless: true,          // 无头模式
-  timeout: 30000,          // 超时时间
-  maxRetries: 3,           // 最大重试次数
-  enableCache: true,       // 启用缓存
-  cacheExpireTime: 300000  // 缓存过期时间（5分钟）
+  headless: false,            // 是否隐藏浏览器窗口
+  userAgent: '',              // 自定义 UA，默认桌面 Chrome
+  maxRetries: 3,              // 最大重试次数
+  timeout: 30000,             // 通用超时时间（ms），可被更细粒度字段覆盖
+  pageLoadTimeout: 45000,     // 页面加载超时（可选）
+  downloadTimeout: 360000,    // 下载超时（可选）
+  uploadTimeout: 600000,      // 上传超时（可选）
+  launchArgs: ['--proxy-server=http://127.0.0.1:7890'], // 追加的启动参数（可选）
+  executablePath: '',         // 自定义 Chromium 路径（可选）
+  tempDir: 'D:/pangu-temp',   // 临时视频存储目录（可选）
+  ignoreHTTPSErrors: false,   // 是否忽略 HTTPS 证书错误
+  enableCache: true,          // 启用结果缓存
+  cacheExpireTime: 300000     // 缓存过期时间（毫秒）
 }
 ```
+
+> 以上字段均为可选，未配置时将使用安全的默认值。`timeout` 会作为 `pageLoad`、`download`、`upload` 的兜底值。
 
 ## 🔧 核心功能
 
