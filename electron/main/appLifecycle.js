@@ -35,3 +35,7 @@ function registerAppLifecycle({ createMainWindow, getMainWindow, onBeforeQuit })
 
 module.exports = registerAppLifecycle;
 
+
+
+
+
