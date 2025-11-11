@@ -163,6 +163,148 @@ class PuppeteerService {
     }
   }
 
+  /**
+   * 使用 Puppeteer 生成 PDF
+   * @param {string} url - 需要转换为 PDF 的页面地址
+   * @param {object} options - 生成配置
+   */
+  async generatePdfFromUrl(
+    url,
+    options = {}
+  ) {
+    const settings = this._refreshSettings();
+
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+
+    const page = await this.browser.newPage();
+
+    try {
+      await page.setUserAgent(this.userAgent);
+
+      if (settings.viewport) {
+        await page.setViewport(settings.viewport);
+      }
+
+      const waitUntil = options.waitUntil || 'networkidle0';
+      const timeout = typeof options.timeout === 'number' ? options.timeout : this.timeouts.pageLoad;
+
+      logger.info('[Puppeteer] 开始加载 PDF 页面:', url);
+
+      const targetUrl = new URL(url);
+      const origin = `${targetUrl.protocol}//${targetUrl.host}`;
+      const optionCookies = Array.isArray(options.cookies) ? options.cookies : [];
+
+      if (optionCookies.length > 0) {
+        const sameSiteMap = {
+          Strict: 'Strict',
+          strict: 'Strict',
+          Lax: 'Lax',
+          lax: 'Lax',
+          None: 'None',
+          none: 'None',
+          no_restriction: 'None',
+          unspecified: undefined,
+        };
+
+        const normalizedCookies = optionCookies
+          .map((cookie) => {
+            if (!cookie || !cookie.name) {
+              return null;
+            }
+
+            const normalized = {
+              name: cookie.name,
+              value: cookie.value ?? '',
+              path: cookie.path || '/',
+              secure: Boolean(cookie.secure),
+              httpOnly: Boolean(cookie.httpOnly),
+            };
+
+            if (typeof cookie.expirationDate === 'number') {
+              normalized.expires = cookie.expirationDate;
+            }
+
+            const mappedSameSite = sameSiteMap[cookie.sameSite];
+            if (mappedSameSite) {
+              normalized.sameSite = mappedSameSite;
+            }
+
+            if (cookie.domain && typeof cookie.domain === 'string') {
+              normalized.domain = cookie.domain;
+            } else {
+              normalized.url = origin;
+            }
+
+            if (!normalized.domain && !normalized.url) {
+              normalized.url = origin;
+            }
+
+            return normalized;
+          })
+          .filter(Boolean);
+
+        if (normalizedCookies.length > 0) {
+          await page.setCookie(...normalizedCookies);
+          logger.info('[Puppeteer] 已设置会话 Cookie 数量:', normalizedCookies.length);
+        }
+      }
+
+      await page.goto(url, { waitUntil, timeout });
+
+      if (options.waitForSelector) {
+        const selectorTimeout =
+          typeof options.waitForSelectorTimeout === 'number'
+            ? options.waitForSelectorTimeout
+            : 15000;
+        await page.waitForSelector(options.waitForSelector, { timeout: selectorTimeout });
+      }
+
+      if (options.waitForFunction) {
+        const waitTimeout =
+          typeof options.waitForTimeout === 'number' ? options.waitForTimeout : 20000;
+        await page.waitForFunction(options.waitForFunction, { timeout: waitTimeout });
+      } else if (options.waitForTimeout) {
+        await page.waitForTimeout(options.waitForTimeout);
+      } else {
+        await page.waitForTimeout(1000);
+      }
+
+      await page.emulateMediaType('screen');
+
+      const pdfOptions = {
+        format: 'A4',
+        printBackground: true,
+        margin: {
+          top: '10mm',
+          bottom: '10mm',
+          left: '10mm',
+          right: '10mm'
+        },
+        ...(options.pdfOptions || {})
+      };
+
+      if (options.outputPath) {
+        pdfOptions.path = options.outputPath;
+      }
+
+      const pdfBuffer = await page.pdf(pdfOptions);
+
+      logger.info('[Puppeteer] PDF 生成完成, 大小:', pdfBuffer.length, 'bytes');
+      return pdfBuffer;
+    } catch (error) {
+      logger.error('[Puppeteer] PDF 生成失败:', error);
+      throw error;
+    } finally {
+      try {
+        await page.close();
+      } catch (closeError) {
+        logger.warn('[Puppeteer] 关闭页面失败:', closeError);
+      }
+    }
+  }
+
   _refreshSettings() {
     const settings = buildPuppeteerSettings();
     this.settings = settings;

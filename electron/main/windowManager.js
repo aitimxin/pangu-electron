@@ -43,6 +43,26 @@ function createMainWindow() {
   });
 
   attachWindowEvents(mainWindow);
+  mainWindow.webContents.setWindowOpenHandler(({ url, features }) => {
+    logger.info('Window open requested:', url, features);
+    return {
+      action: 'allow',
+      overrideBrowserWindowOptions: {
+        parent: mainWindow,
+        modal: false,
+        autoHideMenuBar: true,
+        show: true,
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true,
+          enableRemoteModule: false,
+          preload: path.join(__dirname, '../preload.js'),
+          webSecurity: true,
+          allowRunningInsecureContent: false
+        }
+      }
+    };
+  });
   loadFrontend(mainWindow);
 
   return mainWindow;
@@ -115,6 +135,7 @@ module.exports = {
   createMainWindow,
   getMainWindow
 };
+
 
 
 

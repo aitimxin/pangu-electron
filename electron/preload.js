@@ -5,8 +5,10 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 
+console.log('[Preload] script executing, contextIsolation:', process.contextIsolated);
+
 // 暴露安全的 API 到渲染进程
-contextBridge.exposeInMainWorld('electronAPI', {
+const exposedAPI = {
   // ============ 系统信息 ============
   platform: process.platform,
   version: process.versions.electron,
@@ -39,6 +41,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   offFetchProgress: () => {
     ipcRenderer.removeAllListeners('fetch-progress');
   },
+
+  // ============ PDF 生成 ============
+  /**
+   * 通过 Puppeteer 生成 PDF
+   * @param {object} options - PDF 生成选项
+   */
+  generatePdfFromUrl: (options) => ipcRenderer.invoke('generate-pdf', options),
 
   // ============ 文件操作 ============
   /**
@@ -185,6 +194,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
    * 从剪贴板读取
    */
   readFromClipboard: () => ipcRenderer.invoke('read-from-clipboard')
+};
+
+contextBridge.exposeInMainWorld('electronAPI', exposedAPI);
+
+console.log('[Preload] electronAPI exposed with keys:', Object.keys(exposedAPI));
+
+window.addEventListener('DOMContentLoaded', () => {
+  console.log('[Preload] DOMContentLoaded, window.electronAPI exists:', typeof window.electronAPI !== 'undefined');
 });
 
 // 日志输出（仅开发模式）
@@ -193,6 +210,7 @@ if (process.env.NODE_ENV === 'development') {
   console.log('Platform:', process.platform);
   console.log('Electron version:', process.versions.electron);
 }
+
 
 
 

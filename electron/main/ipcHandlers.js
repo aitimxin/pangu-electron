@@ -1,4 +1,5 @@
 const { ipcMain, dialog, shell, clipboard, Notification } = require('electron');
+const path = require('path');
 const logger = require('../utils/logger');
 const config = require('../utils/config');
 const { isDev } = require('./env');
@@ -43,6 +44,113 @@ function registerIpcHandlers({ getMainWindow, puppeteerService, fileService, upd
     const parentWindow = getMainWindow();
     const result = await dialog.showOpenDialog(parentWindow || undefined, options);
     return result.filePaths;
+  });
+
+  ipcMain.handle('generate-pdf', async (_event, payload) => {
+    const {
+      url,
+      savePath,
+      pdfOptions,
+      waitForSelector,
+      waitForSelectorTimeout,
+      waitForFunction,
+      waitForTimeout,
+      cookies: payloadCookies,
+    } = payload || {};
+
+    if (!url) {
+      return { success: false, error: '缺少 PDF 生成地址' };
+    }
+
+    try {
+      logger.info('IPC: 开始生成 PDF =>', url);
+
+      let cookies = payloadCookies;
+      const parentWindow = getMainWindow && getMainWindow();
+      if ((!cookies || cookies.length === 0) && parentWindow && !parentWindow.isDestroyed()) {
+        try {
+          const targetOrigin = new URL(url).origin;
+          cookies = await parentWindow.webContents.session.cookies.get({ url: targetOrigin });
+          logger.info('IPC: 获取到会话 Cookie 数量 =>', cookies.length);
+
+          if ((!cookies || cookies.length === 0) && parentWindow.webContents.getURL()) {
+            const parentUrl = parentWindow.webContents.getURL();
+            try {
+              const parentOrigin = new URL(parentUrl).origin;
+              const parentCookies =
+                (await parentWindow.webContents.session.cookies.get({ url: parentOrigin })) || [];
+              if (parentCookies.length > 0) {
+                const targetHostname = new URL(url).hostname;
+                cookies = parentCookies.map((cookie) => ({
+                  ...cookie,
+                  domain: targetHostname,
+                  url: targetOrigin,
+                }));
+                logger.info(
+                  'IPC: 使用父窗口 Cookie 回填目标域名，数量 =>',
+                  cookies.length,
+                );
+              }
+            } catch (fallbackError) {
+              logger.warn('IPC: 回填父窗口 Cookie 失败:', fallbackError.message);
+            }
+          }
+        } catch (cookieError) {
+          logger.warn('IPC: 获取会话 Cookie 失败:', cookieError.message);
+        }
+      }
+
+      const defaultFileName = `health-report-${Date.now()}.pdf`;
+      let finalPath = savePath;
+
+      if (!finalPath) {
+        finalPath = path.join(fileService.getDownloadsPath(), defaultFileName);
+      }
+
+      await fileService.ensureDir(path.dirname(finalPath));
+
+      const pdfResult = await puppeteerService.generatePdfFromUrl(url, {
+        pdfOptions,
+        waitForSelector,
+        waitForSelectorTimeout,
+        waitForFunction,
+        waitForTimeout,
+        cookies,
+        outputPath: finalPath,
+      });
+
+      if (!pdfResult) {
+        throw new Error('未获取到 PDF 数据');
+      }
+
+      const pdfBuffer =
+        Buffer.isBuffer(pdfResult) || pdfResult instanceof Uint8Array
+          ? Buffer.from(pdfResult)
+          : Buffer.from(pdfResult);
+
+      if (!pdfBuffer || pdfBuffer.length === 0) {
+        throw new Error('生成的 PDF 内容为空');
+      }
+
+      await fileService.saveFile(finalPath, pdfBuffer);
+
+      const signature = pdfBuffer.slice(0, 4).toString('utf8');
+      if (signature !== '%PDF') {
+        throw new Error('生成的 PDF 文件无效');
+      }
+
+      logger.info('IPC: PDF 已保存 =>', finalPath);
+      return {
+        success: true,
+        filePath: finalPath,
+      };
+    } catch (error) {
+      logger.error('IPC: 生成 PDF 失败:', error);
+      return {
+        success: false,
+        error: error.message || '生成 PDF 失败',
+      };
+    }
   });
 
   ipcMain.handle('select-save-path', async (_event, options) => {
