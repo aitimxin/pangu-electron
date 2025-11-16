@@ -317,7 +317,7 @@ class PuppeteerService {
 
   _buildLaunchOptions(settings) {
     const launchOptions = {
-      headless: settings.headless,
+      headless: true,
       args: settings.launchArgs,
       defaultViewport: settings.viewport,
       ignoreHTTPSErrors: settings.ignoreHTTPSErrors
