@@ -70,7 +70,7 @@ function buildPuppeteerSettings() {
     : fallbackTimeout ?? DEFAULTS.TIMEOUTS.upload;
 
   return {
-    headless: overrides.headless ?? false,
+    headless: overrides.headless ?? true,
     userAgent: overrides.userAgent || DEFAULTS.USER_AGENT,
     maxRetries: overrides.maxRetries ?? DEFAULTS.MAX_RETRIES,
     timeouts: {
@@ -317,11 +317,12 @@ class PuppeteerService {
 
   _buildLaunchOptions(settings) {
     const launchOptions = {
-      headless: true,
+      headless: settings.headless,
       args: settings.launchArgs,
       defaultViewport: settings.viewport,
       ignoreHTTPSErrors: settings.ignoreHTTPSErrors
     };
+    logger.info('Launch options:', launchOptions);
 
     if (settings.executablePath) {
       launchOptions.executablePath = settings.executablePath;

@@ -55,7 +55,7 @@ const schema = {
   puppeteer: {
     type: 'object',
     properties: {
-      headless: { type: 'boolean', default: false },  // 关闭无头模式，显示浏览器窗口
+      headless: { type: 'boolean', default: true },  // 关闭无头模式，显示浏览器窗口
       timeout: { type: 'number', default: 30000 },
       maxRetries: { type: 'number', default: 3 },
       userAgent: { type: 'string', default: '' },
