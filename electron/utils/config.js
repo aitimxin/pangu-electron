@@ -46,7 +46,7 @@ const schema = {
   frontend: {
     type: 'object',
     properties: {
-      devUrl: { type: 'string', default: 'http://localhost:8000' },
+      devUrl: { type: 'string', default: 'http://localhost:8001' },
       prodPath: { type: 'string', default: '../app/index.html' }
     }
   },

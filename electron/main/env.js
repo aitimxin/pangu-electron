@@ -8,7 +8,7 @@ function resolveFrontendTarget() {
   if (isDev) {
     return {
       type: 'url',
-      value: config.get('frontend.devUrl', 'http://localhost:8000')
+      value: config.get('frontend.devUrl', 'http://localhost:8001')
     };
   }
 
